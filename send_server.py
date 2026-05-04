@@ -1,12 +1,13 @@
-import asyncio
+from asyncio import run
 from binascii import unhexlify
 from dataclasses import dataclass
 
 from ipv8.community import Community, CommunitySettings
 from ipv8.configuration import ConfigBuilder, Strategy, WalkerDefinition, default_bootstrap_defs
 from ipv8.lazy_community import lazy_wrapper
-from ipv8.messaging.payload_dataclass import DataClassPayload
+from ipv8.messaging.payload_dataclass import DataClassPayload, type_from_format
 from ipv8.peer import Peer
+from ipv8.util import run_forever
 from ipv8_service import IPv8
 from dotenv import load_dotenv
 import os
@@ -23,17 +24,24 @@ with open("nonce.txt", "r") as f:
     NONCE = int(f.read().strip())
 
 
+INT64 = type_from_format("q")
+
+
 @dataclass
 class SubmissionPayload(DataClassPayload[1]):
     email: str
     github_url: str
-    nonce: int
+    nonce: INT64
 
 
 @dataclass
 class ResponsePayload(DataClassPayload[2]):
     success: bool
     message: str
+
+
+_ = SubmissionPayload("", "", 0)
+_ = ResponsePayload(False, "")
 
 
 class LabCommunity(Community):
@@ -45,7 +53,7 @@ class LabCommunity(Community):
         self.submitted = False
 
     def started(self) -> None:
-        self.register_task("find_and_send", self.find_and_send, interval=5.0, delay=5.0)
+        self.register_task("find_and_send", self.find_and_send, interval=2.0, delay=0)
 
     async def find_and_send(self) -> None:
         if self.submitted:
@@ -76,10 +84,8 @@ async def main() -> None:
                         [WalkerDefinition(Strategy.RandomWalk, 10, {"timeout": 3.0})],
                         default_bootstrap_defs, {}, [("started",)])
 
-    ipv8 = IPv8(builder.finalize(), extra_communities={"LabCommunity": LabCommunity})
-    await ipv8.start()
-    await asyncio.sleep(300)  # Wait up to 2 minutes for a response
-    await ipv8.stop()
+    await IPv8(builder.finalize(), extra_communities={"LabCommunity": LabCommunity}).start()
+    await run_forever()
 
 
-asyncio.run(main())
+run(main())
