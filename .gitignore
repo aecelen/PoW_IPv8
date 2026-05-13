@@ -1,4 +1,4 @@
 .venv
 my_key.pem
-nonce.txt
-.env
+assignment_1/nonce.txt
+assignment_1/.env
