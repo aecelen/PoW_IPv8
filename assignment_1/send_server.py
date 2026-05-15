@@ -79,7 +79,7 @@ class LabCommunity(Community):
 
 async def main() -> None:
     builder = ConfigBuilder().clear_keys().clear_overlays()
-    builder.add_key("my peer", "curve25519", "my_key.pem")
+    builder.add_key("my peer", "curve25519", "../my_key.pem")
     builder.add_overlay("LabCommunity", "my peer",
                         [WalkerDefinition(Strategy.RandomWalk, 10, {"timeout": 3.0})],
                         default_bootstrap_defs, {}, [("started",)])
