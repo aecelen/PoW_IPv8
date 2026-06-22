@@ -23,7 +23,7 @@ from constants import (
     YURIAN_PUBLIC_KEY,
     CHAIN_COMMUNITY_ID,
 )
-from utils import validate_block, mine_block, async_input, validate_timestamp, calculate_next_difficulty
+from utils import validate_block, mine_block, async_input, validate_timestamp, calculate_next_difficulty, MAX_REORG_DEPTH
 
 from ipv8.peer import Peer
 from ipv8.community import Community, CommunitySettings
@@ -252,6 +252,15 @@ class BlockchainCommunity(Community):
         # Check for a common ancestor
         if payload.height < len(state.blockchain):
             if block.hash() == state.blockchain[payload.height].hash():
+
+                # Bound how deep a reorg can run
+                reorg_depth = len(state.blockchain) - 1 - payload.height
+                if reorg_depth > MAX_REORG_DEPTH:
+                    print(f"Rejected reorg of depth {reorg_depth} from {peer} (max {MAX_REORG_DEPTH})")
+                    state.do_mine = True
+                    state.new_chain.pop(peerkey, None)
+                    return
+
                 all_rev = list(reversed(state.new_chain[peerkey]["blocks"]))
                 fetched_blocks = [b for b in all_rev if b.height > payload.height]
                 for i, b in enumerate(fetched_blocks):
@@ -260,10 +269,22 @@ class BlockchainCommunity(Community):
                 candidate_chain = state.blockchain[: payload.height + 1] + fetched_blocks
                 chain_correct = self.validate_chain(candidate_chain)
                 if chain_correct and len(candidate_chain) > len(state.blockchain):
+                    old_blocks = state.blockchain[payload.height + 1:]
+                    new_tx_hashes = {tx.hash() for b in fetched_blocks for tx in b.txs}
                     state.blockchain = candidate_chain
-                    print(f"Replaced local chain with new chain from {peer} of length {len(state.blockchain) - 1}")
                     for i in range(len(state.blockchain)):
                         state.blockchain[i].height = i
+                    recovered = 0
+                    # Put the orphaned transactions back in the mempool
+                    for old_block in old_blocks:
+                        for tx in old_block.txs:
+                            if tx.hash() not in new_tx_hashes:
+                                state.mempool.add(tx)
+                                recovered += 1
+                    print(
+                        f"Replaced local chain with new chain from {peer} of length {len(state.blockchain) - 1}"
+                        + (f" (recovered {recovered} orphaned txs)" if recovered else "")
+                    )
                 else:
                     print(
                         f"Rejected new chain from {peer} "

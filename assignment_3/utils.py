@@ -83,6 +83,7 @@ ADJUSTMENT_INTERVAL: int = 10 # recalculate difficulty every N blocks
 MAX_ADJUSTMENT_FACTOR: float = 4.0 # max multiplier / divisor per adjustment window
 MTP_WINDOW: int = 11 # Median Time Past: look back at most this many blocks
 MAX_FUTURE_DRIFT: int = 10 # seconds a block timestamp may exceed wall-clock time
+MAX_REORG_DEPTH: int = 100 # refuse to reorg more than this many of our own blocks away
 
 def get_median_time_past(chain: list, tip_index: int) -> int:
     """Return the median timestamp of up to MTP_WINDOW blocks ending at tip_index."""
