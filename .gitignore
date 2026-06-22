@@ -2,5 +2,5 @@
 my_key.pem
 assignment_1/nonce.txt
 assignment_1/.env
-private_keys/aykut.pem
+private_keys/*
 assignment_3/__pycache__/
