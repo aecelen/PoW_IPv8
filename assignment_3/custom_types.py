@@ -31,11 +31,12 @@ class Transaction:
     def verify_signature(self) -> bool:
         key = ECCrypto().key_from_public_bin(self.sender_key)
         try:
-            key.verify(
+            success = key.verify(
                 self.signature,
                 self.sender_key + self.data + self.timestamp.to_bytes(8, "big"),
             )
-            return True
+            if success is None: return True
+            return success
         except ValueError:
             return False
         return False

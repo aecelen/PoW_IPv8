@@ -8,8 +8,8 @@ from messages import (
     SubmitTransactionResponse,
     GetBlockRequest,
     GetBlockResponse,
-    GetChainHeigthRequest,
-    GetChainHeigthResponse,
+    GetChainHeightRequest,
+    GetChainHeightResponse,
     BlockAnnouncementMessage,
     ChangedDifficultyMessage,
     EntireChainRequest,
@@ -23,7 +23,7 @@ from constants import (
     YURIAN_PUBLIC_KEY,
     CHAIN_COMMUNITY_ID,
 )
-from utils import validate_block, mine_block, async_input
+from utils import validate_block, mine_block, async_input, validate_timestamp, calculate_next_difficulty
 
 from ipv8.peer import Peer
 from ipv8.community import Community, CommunitySettings
@@ -39,10 +39,10 @@ class BlockchainCommunity(Community):
         self.add_message_handler(SubmitTransactionRequest, self.on_submit_transaction_request)
         self.add_message_handler(SubmitTransactionResponse, self.on_submit_transaction_response)
         self.add_message_handler(GetBlockResponse, self.on_get_block_response)
-        self.add_message_handler(GetChainHeigthResponse, self.on_get_chain_height_response)
+        self.add_message_handler(GetChainHeightResponse, self.on_get_chain_height_response)
         self.add_message_handler(BlockAnnouncementMessage, self.on_block_announcement)
         self.add_message_handler(ChangedDifficultyMessage, self.on_changed_difficulty)
-        self.add_message_handler(GetChainHeigthRequest, self.on_get_chain_height_request)
+        self.add_message_handler(GetChainHeightRequest, self.on_get_chain_height_request)
         self.add_message_handler(GetBlockRequest, self.on_get_block_request)
         self.add_message_handler(EntireChainRequest, self.on_entire_chain_request)
         self.add_message_handler(EntireChainResponse, self.on_entire_chain_response)
@@ -92,8 +92,8 @@ class BlockchainCommunity(Community):
             ),
         )
 
-    @lazy_wrapper(GetChainHeigthResponse)
-    def on_get_chain_height_response(self, peer: Peer, payload: GetChainHeigthResponse) -> None:
+    @lazy_wrapper(GetChainHeightResponse)
+    def on_get_chain_height_response(self, peer: Peer, payload: GetChainHeightResponse) -> None:
         print(
             f"Get Chain Height Response from {peer}:"
             f"\n\trequest_id={payload.request_id}"
@@ -101,12 +101,12 @@ class BlockchainCommunity(Community):
             f"\n\ttip_hash={payload.tip_hash.hex()}"
         )
 
-    @lazy_wrapper(GetChainHeigthRequest)
-    def on_get_chain_height_request(self, peer: Peer, payload: GetChainHeigthRequest) -> None:
+    @lazy_wrapper(GetChainHeightRequest)
+    def on_get_chain_height_request(self, peer: Peer, payload: GetChainHeightRequest) -> None:
         tip = state.blockchain[-1]
         self._safe_ez_send(
             peer,
-            GetChainHeigthResponse(
+            GetChainHeightResponse(
                 request_id=payload.request_id,
                 height=len(state.blockchain) - 1,
                 tip_hash=tip.hash(),
@@ -201,6 +201,10 @@ class BlockchainCommunity(Community):
             print(f"Ignored invalid block announcement from {peer} with height {payload.height}")
             return
 
+        if not validate_timestamp(block.timestamp, state.blockchain):
+            print(f"Ignored block {payload.height} from {peer}: invalid timestamp {block.timestamp}")
+            return
+
         state.blockchain.append(block)
         for tx in block.txs:
             state.mempool.discard(tx)
@@ -287,10 +291,11 @@ class BlockchainCommunity(Community):
             candidate.txs = [Transaction.from_bytes(tx.to_bytes())[0] for tx in txs]
             candidate._compute_txs_hash()
             candidate.timestamp = max(
+                int(time.time()),
                 tip.timestamp + 1,
-                max((tx.timestamp for tx in txs), default=tip.timestamp + 1),
+                max((tx.timestamp for tx in txs), default=0),
             )
-            candidate.difficulty = state.difficulty
+            candidate.difficulty = calculate_next_difficulty(state.blockchain) or state.difficulty
             candidate.nonce = 0
             candidate.height = tip.height + 1
 
@@ -314,10 +319,11 @@ class BlockchainCommunity(Community):
         candidate.txs = [Transaction.from_bytes(tx.to_bytes())[0] for tx in txs]
         candidate._compute_txs_hash()
         candidate.timestamp = max(
+            int(time.time()),
             tip.timestamp + 1,
-            max((tx.timestamp for tx in txs), default=tip.timestamp + 1),
+            max((tx.timestamp for tx in txs), default=0),
         )
-        candidate.difficulty = state.difficulty
+        candidate.difficulty = calculate_next_difficulty(state.blockchain) or state.difficulty
         candidate.nonce = 0
         candidate.height = tip.height + 1
 
@@ -402,6 +408,7 @@ class BlockchainCommunity(Community):
         state.difficulty = 4
         loop = asyncio.get_event_loop()
         await to_thread(self._mine_one_block, loop)
+        t = Transaction.from_bytes(t.to_bytes())[0]
         t.timestamp += 1
         state.mempool.add(t)
         await to_thread(self._mine_one_block, loop)
@@ -412,6 +419,9 @@ class BlockchainCommunity(Community):
             chain = state.blockchain
         for i in range(1, len(chain)):
             if not validate_block(chain[i], chain[i - 1].hash(), do_print=True):
+                return False
+            if not validate_timestamp(chain[i].timestamp, chain[:i], check_future=False):
+                print(f"Invalid timestamp at block {i}: ts={chain[i].timestamp}")
                 return False
         return chain[0].hash() == state.genesis_block.hash()
 
