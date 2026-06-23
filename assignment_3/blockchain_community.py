@@ -2,7 +2,7 @@ import time
 import asyncio
 import threading
 
-import state
+import globals as state
 from messages import (
     SubmitTransactionRequest,
     SubmitTransactionResponse,
@@ -295,7 +295,11 @@ class BlockchainCommunity(Community):
                 tip.timestamp + 1,
                 max((tx.timestamp for tx in txs), default=0),
             )
-            candidate.difficulty = calculate_next_difficulty(state.blockchain) or state.difficulty
+            next_difficulty = calculate_next_difficulty(state.blockchain) or state.difficulty
+            if next_difficulty != state.difficulty:
+                print(f"Adaptive difficulty: {state.difficulty} -> {next_difficulty}")
+                state.difficulty = next_difficulty
+            candidate.difficulty = state.difficulty
             candidate.nonce = 0
             candidate.height = tip.height + 1
 
